@@ -16,8 +16,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: "x86", platform: "Win32", suffix: "" }
-          - { name: "x64", platform: "x64", suffix: "_x64" }
+          - { name: "x86", platform: "x86", suffix: "", exe: "Release/Reader.exe" }
+          - { name: "x64", platform: "x64", suffix: "_x64", exe: "x64/Release/Reader.exe" }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,9 +32,9 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
-          if ($exe) {
-            $v = $exe.VersionInfo.FileVersion
+          $exe = "${{ matrix.exe }}"
+          if (Test-Path $exe) {
+            $v = (Get-Item $exe).VersionInfo.FileVersion
             echo "version=$v" >> $env:GITHUB_OUTPUT
           } else {
             echo "version=0.0.0.0" >> $env:GITHUB_OUTPUT
@@ -48,11 +48,7 @@ jobs:
           $suffix = "${{ matrix.suffix }}"
           $pkgDir = "publish/Reader_v${ver}"
           New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
-          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" -and $_.FullName -match "${{ matrix.name }}" } | Select-Object -First 1
-          if (-not $exe) {
-            $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
-          }
-          Copy-Item $exe.FullName "$pkgDir/Reader.exe" -Force
+          Copy-Item "${{ matrix.exe }}" "$pkgDir/Reader.exe" -Force
           Copy-Item readme.txt "$pkgDir/readme.txt" -Force
           $target = "Reader_v${ver}${suffix}.7z"
           & tool\7z.exe a -t7z "$pkgDir/$target" "$pkgDir/Reader.exe" "$pkgDir/readme.txt"
@@ -80,7 +76,7 @@ jobs:
         run: |
           copy Reader\Reader.vcxproj Reader\Reader_bak.vcxproj
           tool\repstr "ENABLE_NETWORK;" "" Reader\Reader.vcxproj
-          msbuild Reader.sln /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+          msbuild Reader.sln /p:Configuration=Release /p:Platform=x86 /m /v:minimal
           del Reader\Reader.vcxproj /q
           ren Reader\Reader_bak.vcxproj Reader.vcxproj
 
@@ -88,9 +84,9 @@ jobs:
         id: ver
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
-          if ($exe) {
-            $v = $exe.VersionInfo.FileVersion
+          $exe = "Release/Reader.exe"
+          if (Test-Path $exe) {
+            $v = (Get-Item $exe).VersionInfo.FileVersion
             echo "version=$v" >> $env:GITHUB_OUTPUT
           } else {
             echo "version=0.0.0.0" >> $env:GITHUB_OUTPUT
@@ -103,8 +99,7 @@ jobs:
           $ver = "${{ steps.ver.outputs.version }}"
           $pkgDir = "publish/Reader_v${ver}"
           New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
-          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
-          Copy-Item $exe.FullName "$pkgDir/Reader.exe" -Force
+          Copy-Item "Release/Reader.exe" "$pkgDir/Reader.exe" -Force
           Copy-Item readme.txt "$pkgDir/readme.txt" -Force
           $target = "Reader_v${ver}_networkless.7z"
           & tool\7z.exe a -t7z "$pkgDir/$target" "$pkgDir/Reader.exe" "$pkgDir/readme.txt"
