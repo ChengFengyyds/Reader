@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-2019
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
@@ -22,11 +22,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      - name: Install VS2019 Build Tools (v142)
+        shell: pwsh
+        run: |
+          choco install -y visualstudio2019buildtools `
+            --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools `
+              --add Microsoft.VisualStudio.Component.VC.v142.x86.x64 `
+              --add Microsoft.VisualStudio.Component.Windows10SDK.17763 `
+              --includeRecommended --passive --norestart"
+
+      - name: Locate MSBuild
+        id: msb
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $path = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          echo "msbuild=$path" >> $env:GITHUB_OUTPUT
+          echo "Found: $path"
 
       - name: Build Release (${{ matrix.name }})
-        run: msbuild Reader.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:WindowsTargetPlatformVersion=10.0 /m /v:minimal
+        run: "& '${{ steps.msb.outputs.msbuild }}' Reader.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /m /v:minimal"
 
       - name: Get version
         id: ver
@@ -63,20 +78,35 @@ jobs:
           path: ${{ steps.prep.outputs.pkgdir }}
 
   build-networkless:
-    runs-on: windows-2019
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      - name: Install VS2019 Build Tools (v142)
+        shell: pwsh
+        run: |
+          choco install -y visualstudio2019buildtools `
+            --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools `
+              --add Microsoft.VisualStudio.Component.VC.v142.x86.x64 `
+              --add Microsoft.VisualStudio.Component.Windows10SDK.17763 `
+              --includeRecommended --passive --norestart"
+
+      - name: Locate MSBuild
+        id: msb
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $path = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          echo "msbuild=$path" >> $env:GITHUB_OUTPUT
+          echo "Found: $path"
 
       - name: Build Release networkless (x86)
         shell: cmd
         run: |
           copy Reader\Reader.vcxproj Reader\Reader_bak.vcxproj
           tool\repstr "ENABLE_NETWORK;" "" Reader\Reader.vcxproj
-          msbuild Reader.sln /p:Configuration=Release /p:Platform=x86 /p:WindowsTargetPlatformVersion=10.0 /m /v:minimal
+          "${{ steps.msb.outputs.msbuild }}" Reader.sln /p:Configuration=Release /p:Platform=x86 /m /v:minimal
           del Reader\Reader.vcxproj /q
           ren Reader\Reader_bak.vcxproj Reader.vcxproj
 
