@@ -14,10 +14,10 @@ const char* UTF_8_BOM = "\xEF\xBB\xBF";
 const char* UTF_32_BE_BOM = "\x00\x00\xFE\xFF";
 const char* UTF_32_LE_BOM = "\xFF\xFE\x00\x00";
 
-static char* _result = NULL;
-static int _len = 0;
-static wchar_t* _wresult = NULL;
-static int _wlen = 0;
+static __declspec(thread) char* _result = NULL;
+static __declspec(thread) int _len = 0;
+static __declspec(thread) wchar_t* _wresult = NULL;
+static __declspec(thread) int _wlen = 0;
 
 wchar_t* ansi_to_utf16(const char* str, int size, int* len)
 {

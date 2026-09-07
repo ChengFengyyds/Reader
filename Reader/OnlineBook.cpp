@@ -13,10 +13,11 @@ extern book_source_t* FindBookSource(const char* host);
 extern void DumpParseErrorFile(const char *html, int htmllen);
 extern void UpdateBookMark(HWND hWnd, int index, int size);
 
-int parse_protocol_host(const char* url, char* host)
+int parse_protocol_host(const char* url, char* host, int host_size)
 {
     const char* p = NULL;
     const char* t = NULL;
+    int len = 0;
 
     p = url;
     // is ssl
@@ -32,24 +33,26 @@ int parse_protocol_host(const char* url, char* host)
     // parse host
     t = strstr(p, "/");
     if (t)
-    {
-        strncpy(host, url, t - url);
-    }
+        len = (int)(t - url);
     else
-    {
-        strcpy(host, url);
-    }
+        len = (int)strlen(url);
+
+    if (len >= host_size)
+        len = host_size - 1;
+    if (len > 0)
+        memcpy(host, url, len);
+    host[len] = 0;
     return succ;
 }
 
-void combine_url(const char* path, const char* url, char* dsturl)
+void combine_url(const char* path, const char* url, char* dsturl, int dsturl_size)
 {
     char temp[1024] = { 0 };
     char host[1024] = { 0 };
     char* p;
     if (_strnicmp("http", path, 4) == 0)
     {
-        strcpy(dsturl, path);
+        _snprintf(dsturl, dsturl_size, "%s", path);
     }
     else if (_strnicmp("//www.", path, 6) == 0
         || _strnicmp("/www.", path, 5) == 0
@@ -57,17 +60,23 @@ void combine_url(const char* path, const char* url, char* dsturl)
         || _strnicmp("/m.", path, 3) == 0)
     {
         p = (char*)strstr(path, "www.");
-        if (0 == strncmp(url, "http://", 7))
+        if (!p)
+            p = (char*)strstr(path, "m.");
+        if (p && 0 == strncmp(url, "http://", 7))
         {
-            sprintf(dsturl, "http://%s", p);
+            _snprintf(dsturl, dsturl_size, "http://%s", p);
         }
-        else if (0 == strncmp(url, "https://", 8))
+        else if (p && 0 == strncmp(url, "https://", 8))
         {
-            sprintf(dsturl, "https://%s", p);
+            _snprintf(dsturl, dsturl_size, "https://%s", p);
+        }
+        else if (p)
+        {
+            _snprintf(dsturl, dsturl_size, "http://%s", p);
         }
         else
         {
-            sprintf(dsturl, "http://%s", p);
+            _snprintf(dsturl, dsturl_size, "%s", path);
         }
     }
     else if (_strnicmp("//m.", path, 4) == 0
@@ -76,40 +85,41 @@ void combine_url(const char* path, const char* url, char* dsturl)
         p = (char*)strstr(path, "m.");
         if (0 == strncmp(url, "http://", 7))
         {
-            sprintf(dsturl, "http://%s", p);
+            _snprintf(dsturl, dsturl_size, "http://%s", p);
         }
         else if (0 == strncmp(url, "https://", 8))
         {
-            sprintf(dsturl, "https://%s", p);
+            _snprintf(dsturl, dsturl_size, "https://%s", p);
         }
         else
         {
-            sprintf(dsturl, "http://%s", p);
+            _snprintf(dsturl, dsturl_size, "http://%s", p);
         }
     }
     else
     {
         if (path[0] == '/')
         {
-            parse_protocol_host(url, host);
-            sprintf(dsturl, "%s%s", host, path);
+            parse_protocol_host(url, host, sizeof(host));
+            _snprintf(dsturl, dsturl_size, "%s%s", host, path);
         }
         else
         {
-            strcpy(temp, url);
+            _snprintf(temp, sizeof(temp), "%s", url);
             p = strrchr(temp, '/');
             if (p)
             {
                 *(p + 1) = 0;
-                sprintf(dsturl, "%s%s", temp, path);
+                _snprintf(dsturl, dsturl_size, "%s%s", temp, path);
             }
             else
             {
-                parse_protocol_host(url, host);
-                sprintf(dsturl, "%s/%s", host, path);
+                parse_protocol_host(url, host, sizeof(host));
+                _snprintf(dsturl, dsturl_size, "%s/%s", host, path);
             }
         }
     }
+    dsturl[dsturl_size - 1] = 0; // ensure null terminated
 }
 
 #define check_request_result(r)     \
@@ -743,7 +753,7 @@ BOOL OnlineBook::ParserContent(HWND hWnd, int idx, u32 todo)
     param->textlen = 0;
 
     // check URL
-    combine_url(m_Chapters[idx].url.c_str(), m_MainPage, url);
+    combine_url(m_Chapters[idx].url.c_str(), m_MainPage, url, sizeof(url));
 
     memset(&req, 0, sizeof(request_t));
     req.method = GET;
@@ -827,6 +837,14 @@ BOOL OnlineBook::ReadOlFile(BOOL fast)
     int len = 0;
     ol_header_t *header = NULL;
     int basesize = 0;
+
+    // release previous text if any
+    if (m_Text)
+    {
+        free(m_Text);
+        m_Text = NULL;
+        m_Length = 0;
+    }
 
     // read file to memory
     fp = _tfopen(m_fileName, _T("rb"));
@@ -1189,7 +1207,7 @@ BOOL OnlineBook::RequestNextPage(OnlineBook *_this, request_t *r, const char *ur
     if (!url)
         return FALSE;
 
-    combine_url(url, r->url, url_);
+    combine_url(url, r->url, url_, sizeof(url_));
 
     if (r->content)
         logger_printk("Redirect request to: %s -> %s", url_, r->content);
@@ -1230,11 +1248,13 @@ int OnlineBook::FilterContent(TCHAR* text, int *len)
     if (m_Booksrc->content_filter_type == 1) // filter by keyword
     {
         dsttext = (TCHAR*)malloc(sizeof(TCHAR) * (srclen + 1));
+        if (!dsttext)
+            return found;
         memset(dsttext, 0, sizeof(TCHAR) * (srclen + 1));
         kwlen = (int)_tcslen(m_Booksrc->content_filter_keyword);
         for (i=0; i<srclen; i++)
         {
-            if (srclen-i > kwlen)
+            if (kwlen > 0 && srclen-i > kwlen) // kwlen==0 would infinite loop, guard it
             {
                 if (_tcsncmp(text + i, m_Booksrc->content_filter_keyword, kwlen) == 0)
                 {
@@ -1271,17 +1291,34 @@ int OnlineBook::FilterContent(TCHAR* text, int *len)
             return found;
         }
         dsttext = (TCHAR*)malloc(sizeof(TCHAR) * (srclen + 1));
+        if (!dsttext)
+        {
+            delete e;
+            e = NULL;
+            return found;
+        }
         memset(dsttext, 0, sizeof(TCHAR) * (srclen + 1));
 
         while (std::regex_search(text + offset, cm, *e, std::regex_constants::format_first_only))
         {
             found = 1;
-            if (cm.position() > 0)
+            int mpos = (int)cm.position();
+            int mlen = (int)cm.length();
+            if (mpos > 0)
             {
-                memcpy(dsttext + dstlen, text + offset, sizeof(TCHAR) * cm.position());
-                dstlen += (int)cm.position();
+                memcpy(dsttext + dstlen, text + offset, sizeof(TCHAR) * mpos);
+                dstlen += mpos;
             }
-            offset += (int)(cm.position() + cm.length());
+            offset += mpos;
+            if (mlen == 0) // empty match would infinite loop, guard it
+            {
+                if (offset >= srclen)
+                    break;
+                dsttext[dstlen++] = text[offset];
+                offset += 1;
+                continue;
+            }
+            offset += mlen;
         }
         if (e)
         {
@@ -1321,7 +1358,7 @@ BOOL OnlineBook::GenerateOlHeader(ol_header_t** header)
     ol_header_t* header_ = NULL;
     char* buf = NULL;
 
-    int base_size = sizeof(ol_header_t) + (sizeof(ol_chapter_info_t) * ((int)m_Chapters.size() - 1));
+    int base_size = sizeof(ol_header_t) + (sizeof(ol_chapter_info_t) * ((int)m_Chapters.size() > 0 ? (int)m_Chapters.size() - 1 : 0));
     int bookname_size = ((int)_tcslen(m_BookName) + 1) * sizeof(TCHAR);
     int mainpage_size = ((int)strlen(m_MainPage) + 1) * sizeof(char);
     int host_size = ((int)strlen(m_Host) + 1) * sizeof(char);
@@ -1397,7 +1434,7 @@ BOOL OnlineBook::ParseOlHeader(ol_header_t* header)
         item.size = cinfo->size;
         item.title = (TCHAR*)(buf + cinfo->title_offset);
         item.url = buf + cinfo->url_offset;
-        item.title_len = cinfo->title_offset/2;
+        item.title_len = (int)_tcslen(item.title);
         m_Chapters.push_back(item);
     }
 
@@ -1432,7 +1469,7 @@ unsigned int OnlineBook::GetChapterPageCompleter(request_result_t *result)
     }
 
     // save chapter list page url
-    combine_url(chapter_url[0].c_str(), result->req->url, _this->m_ChapterPage);
+    combine_url(chapter_url[0].c_str(), result->req->url, _this->m_ChapterPage, sizeof(_this->m_ChapterPage));
 
     // parser chapters
     _this->ParserChapters(param->hWnd, param->index);
@@ -1548,7 +1585,7 @@ unsigned int OnlineBook::GetChaptersCompleter(request_result_t *result)
             dstlen = (int)_tcslen(dst);
             _this->FormatText(dst, &dstlen);
 
-            combine_url(param->title_url->at(i).c_str(), result->req->url, dsturl);
+            combine_url(param->title_url->at(i).c_str(), result->req->url, dsturl, sizeof(dsturl));
 
             item.index = -1;
             item.size = 0;
@@ -1572,7 +1609,7 @@ unsigned int OnlineBook::GetChaptersCompleter(request_result_t *result)
             dstlen = (int)_tcslen(dst);
             _this->FormatText(dst, &dstlen);
 
-            combine_url(title_url[i].c_str(), result->req->url, dsturl);
+            combine_url(title_url[i].c_str(), result->req->url, dsturl, sizeof(dsturl));
 
             item.index = -1;
             item.size = 0;
@@ -1740,9 +1777,16 @@ unsigned int OnlineBook::GetContentCompleter(request_result_t *result)
         }
         else
         {
+            TCHAR* newtext = (TCHAR*)realloc(param->text, sizeof(TCHAR)*(param->textlen+dstlen+1));
+            if (!newtext) // realloc failed, keep old data and drop new chunk
+            {
+                if (dst) free(dst);
+                dst = NULL;
+                goto end;
+            }
+            param->text = newtext;
+            memcpy(param->text+param->textlen, dst, sizeof(TCHAR)*dstlen);
             param->textlen += dstlen;
-            param->text = (TCHAR*)realloc(param->text, sizeof(TCHAR)*(param->textlen+1));
-            memcpy(param->text+(param->textlen-dstlen), dst, sizeof(TCHAR)*dstlen);
             param->text[param->textlen] = 0;
         }
 

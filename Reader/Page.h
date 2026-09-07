@@ -93,7 +93,7 @@ protected:
     void CreateAlphaTextBitmap(HDC hdc, int width, int height, alpha_dc_info_t *p_alpha_dc);
     void DeleteAlphaTextBitmap(HDC hdc, alpha_dc_info_t *p_alpha_dc);
     void DrawAlphaText(HDC hdc, char_info_t* p_char, int x, int y, int h, alpha_dc_info_t *p_alpha_dc);
-    void BeginDraw(void);
+    BOOL BeginDraw(void);
     void EndDraw(void);
     DWORD GetTextAlpha(DWORD color);
     int  SelectFont(HDC hdc, int index, BOOL is_title);

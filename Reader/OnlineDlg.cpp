@@ -12,7 +12,7 @@ extern HINSTANCE hInst;
 extern void OnOpenOlBook(HWND, void*);
 extern int MessageBox_(HWND hWnd, UINT textId, UINT captionId, UINT uType);
 extern int MessageBoxFmt_(HWND hWnd, UINT captionId, UINT uType, UINT formatId, ...);
-extern void combine_url(const char* path, const char* url, char* dsturl);
+extern void combine_url(const char* path, const char* url, char* dsturl, int dsturl_size);
 
 typedef struct req_query_param_t {
     HWND hDlg;
@@ -425,7 +425,7 @@ static unsigned int RequestQueryCompleter(request_result_t* result)
             col++;
 
             // mainpage
-            combine_url(table_url[i].c_str(), result->req->url, Url);
+            combine_url(table_url[i].c_str(), result->req->url, Url, sizeof(Url));
             memset(&lvitem, 0, sizeof(LVITEM));
             lvitem.mask = LVIF_TEXT;
             lvitem.cchTextMax = MAX_PATH;

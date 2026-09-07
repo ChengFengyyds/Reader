@@ -189,7 +189,15 @@ void Page::DrawPage(HWND hWnd, HDC hdc, RECT* rc, BOOL enable_alpha)
         return;
     }
 
-    BeginDraw();
+    if (!BeginDraw())
+    {
+        if (enable_alpha)
+        {
+            DeleteAlphaTextBitmap(hdc, &alpha_dc);
+            m_BlankPage = FALSE;
+        }
+        return;
+    }
 
     switch (m_DrawType)
     {
@@ -296,6 +304,8 @@ BOOL Page::GetCurPageText(TCHAR **text)
         }
 
         *text = (TCHAR *)malloc(sizeof(TCHAR) * (m_PageLength + newlinecount + 1));
+        if (!(*text))
+            return FALSE;
 
         for (i=0,j=0; i<m_PageLength; i++)
         {
@@ -329,6 +339,7 @@ BOOL Page::SetCurPageText(HWND hWnd, TCHAR *dst_text)
     {
         if (0 == _tcscmp(dst_text, src_text))
         {
+            free(src_text);
             return TRUE;
         }
 
@@ -523,7 +534,7 @@ void Page::DrawAlphaText(HDC hdc, char_info_t* p_char, int x, int y, int h, alph
     }
 }
 
-void Page::BeginDraw(void)
+BOOL Page::BeginDraw(void)
 {
 #if ENABLE_TAG
     int i;
@@ -531,6 +542,8 @@ void Page::BeginDraw(void)
 #else
     m_dcList = (dc_info_t*)malloc(sizeof(dc_info_t) * 2);
 #endif
+    if (!m_dcList)
+        return FALSE;
     m_dcList[0].hFont = CreateFontIndirect(&m_header->font);
     m_dcList[0].BkColor = 0x0;
     m_dcList[0].TextColor = GetTextAlpha(m_header->font_color);
@@ -549,6 +562,7 @@ void Page::BeginDraw(void)
     }
 #endif
     m_dcIndex = -1;
+    return TRUE;
 }
 
 void Page::EndDraw(void)
@@ -1110,6 +1124,7 @@ void Page::CalcPageDown(HDC hdc, RECT *rc)
 
     while ((length = GetNextParagraph(start_pos, max_page_length, &is_blank_line, &crlf_len)) > 0) // out flag: at end of text
     {
+        int old_used = m_PageInfo.lines.used; // lines count before this paragraph
         if (is_blank_line)
         {
             if (NO_BLANS_LINE)
@@ -1127,8 +1142,7 @@ void Page::CalcPageDown(HDC hdc, RECT *rc)
                 if (h >= sz.cy)
                 {
                     AddCharsToLine(line_idx++, NULL, 0, 0, start_pos, length, 0, sz.cy, 0);
-                    h -= sz.cy;
-                    if (h == sz.cy)
+                    if (h == sz.cy * 2) // h -= sz.cy; h == sz.cy
                     {
                         break; // completed
                     }
@@ -1167,9 +1181,8 @@ void Page::CalcPageDown(HDC hdc, RECT *rc)
             }
         }
 
-        // set new height
-        h = height;
-        for (i = 0; i < m_PageInfo.lines.used; i++)
+        // update height incrementally (avoid O(n^2) full rescan)
+        for (i = old_used; i < m_PageInfo.lines.used; i++)
         {
             h -= m_PageInfo.lines.lines[i].cy;
             h -= m_PageInfo.lines.lines[i].gap;
