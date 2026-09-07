@@ -1,0 +1,143 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "x86", platform: "Win32", suffix: "" }
+          - { name: "x64", platform: "x64", suffix: "_x64" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Release (${{ matrix.name }})
+        run: msbuild Reader.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /m /v:minimal
+
+      - name: Get version
+        id: ver
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
+          if ($exe) {
+            $v = $exe.VersionInfo.FileVersion
+            echo "version=$v" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "version=0.0.0.0" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Prepare package
+        id: prep
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $suffix = "${{ matrix.suffix }}"
+          $pkgDir = "publish/Reader_v${ver}"
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" -and $_.FullName -match "${{ matrix.name }}" } | Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
+          }
+          Copy-Item $exe.FullName "$pkgDir/Reader.exe" -Force
+          Copy-Item readme.txt "$pkgDir/readme.txt" -Force
+          $target = "Reader_v${ver}${suffix}.7z"
+          & tool\7z.exe a -t7z "$pkgDir/$target" "$pkgDir/Reader.exe" "$pkgDir/readme.txt"
+          Remove-Item "$pkgDir/Reader.exe", "$pkgDir/readme.txt" -Force
+          echo "artifact=$pkgDir/$target" >> $env:GITHUB_OUTPUT
+          echo "pkgdir=$pkgDir" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reader-${{ matrix.name }}
+          path: ${{ steps.prep.outputs.pkgdir }}
+
+  build-networkless:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Release networkless (x86)
+        shell: cmd
+        run: |
+          copy Reader\Reader.vcxproj Reader\Reader_bak.vcxproj
+          tool\repstr "ENABLE_NETWORK;" "" Reader\Reader.vcxproj
+          msbuild Reader.sln /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+          del Reader\Reader.vcxproj /q
+          ren Reader\Reader_bak.vcxproj Reader.vcxproj
+
+      - name: Get version
+        id: ver
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
+          if ($exe) {
+            $v = $exe.VersionInfo.FileVersion
+            echo "version=$v" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "version=0.0.0.0" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Prepare package
+        id: prep2
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $pkgDir = "publish/Reader_v${ver}"
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+          $exe = Get-ChildItem -Path . -Filter "Reader.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
+          Copy-Item $exe.FullName "$pkgDir/Reader.exe" -Force
+          Copy-Item readme.txt "$pkgDir/readme.txt" -Force
+          $target = "Reader_v${ver}_networkless.7z"
+          & tool\7z.exe a -t7z "$pkgDir/$target" "$pkgDir/Reader.exe" "$pkgDir/readme.txt"
+          Remove-Item "$pkgDir/Reader.exe", "$pkgDir/readme.txt" -Force
+          echo "artifact=$pkgDir/$target" >> $env:GITHUB_OUTPUT
+          echo "pkgdir=$pkgDir" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reader-networkless
+          path: ${{ steps.prep2.outputs.pkgdir }}
+
+  release:
+    needs: [build, build-networkless]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect 7z files
+        shell: bash
+        run: |
+          mkdir -p dist
+          find artifacts -name "*.7z" -exec cp {} dist/ \;
+          ls -la dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.7z
+          draft: true
+          generate_release_notes: true
