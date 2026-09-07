@@ -31,17 +31,18 @@ jobs:
               --add Microsoft.VisualStudio.Component.Windows10SDK.17763 `
               --includeRecommended --passive --norestart"
 
-      - name: Locate MSBuild
+      - name: Locate MSBuild (VS2019)
         id: msb
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $path = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          $path = & $vswhere -version '[16.0,17.0)' -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          if (-not $path) { $path = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe" }
           echo "msbuild=$path" >> $env:GITHUB_OUTPUT
           echo "Found: $path"
 
       - name: Build Release (${{ matrix.name }})
-        run: "& '${{ steps.msb.outputs.msbuild }}' Reader.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /m /v:minimal"
+        run: "& '${{ steps.msb.outputs.msbuild }}' Reader.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:WindowsTargetPlatformVersion=10.0 /m /v:minimal"
 
       - name: Get version
         id: ver
@@ -92,12 +93,13 @@ jobs:
               --add Microsoft.VisualStudio.Component.Windows10SDK.17763 `
               --includeRecommended --passive --norestart"
 
-      - name: Locate MSBuild
+      - name: Locate MSBuild (VS2019)
         id: msb
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $path = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          $path = & $vswhere -version '[16.0,17.0)' -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          if (-not $path) { $path = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe" }
           echo "msbuild=$path" >> $env:GITHUB_OUTPUT
           echo "Found: $path"
 
@@ -106,7 +108,7 @@ jobs:
         run: |
           copy Reader\Reader.vcxproj Reader\Reader_bak.vcxproj
           tool\repstr "ENABLE_NETWORK;" "" Reader\Reader.vcxproj
-          "${{ steps.msb.outputs.msbuild }}" Reader.sln /p:Configuration=Release /p:Platform=x86 /m /v:minimal
+          "${{ steps.msb.outputs.msbuild }}" Reader.sln /p:Configuration=Release /p:Platform=x86 /p:WindowsTargetPlatformVersion=10.0 /m /v:minimal
           del Reader\Reader.vcxproj /q
           ren Reader\Reader_bak.vcxproj Reader.vcxproj
 
